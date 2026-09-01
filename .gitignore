@@ -1,0 +1,41 @@
+# OS / editor files
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+.claude/
+
+# Python caches
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.ipynb_checkpoints/
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# Logs
+*.log
+*.out
+*.err
+nohup.out
+logs/
+
+# Credentials
+.env
+*.pem
+*.key
+
+# Datasets, checkpoints and generated artefacts
+data/
+pretrained_model/
+teachers/
+outputs/
+
+# Third-party training framework, installed separately
+LLaMA-Factory/
