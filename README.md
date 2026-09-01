@@ -1,74 +1,127 @@
-# MI-Distillation: Selecting from Model-Interpolated Instruct-Reasoning Data Spectrum for Chain-of-Thought Distillation
+<div align="center">
 
-[![arXiv](https://img.shields.io/badge/arXiv-2608.29623-b31b1b.svg)](https://arxiv.org/abs/2608.29623)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+# MI-Distillation: Selecting from Model-Interpolated Instruct-Reasoning<br/>Data Spectrum for Chain-of-Thought Distillation
 
-Official implementation of **MI-Distillation: Selecting from Model-Interpolated Instruct-Reasoning Data Spectrum for Chain-of-Thought Distillation** (EMNLP 2026 Findings).
+[![arXiv](https://img.shields.io/badge/arXiv-2608.29623-b31b1b.svg?style=flat-square)](https://arxiv.org/abs/2608.29623)
+[![Venue](https://img.shields.io/badge/EMNLP%202026-Findings-4b6cb7.svg?style=flat-square)](https://arxiv.org/abs/2608.29623)
+[![License](https://img.shields.io/badge/License-MIT-yellow.svg?style=flat-square)](LICENSE)
+[![Python](https://img.shields.io/badge/Python-3.10%2B-3776ab.svg?style=flat-square)](https://www.python.org/)
 
-Distilling Long chain-of-thought (CoT) traces from large reasoning models into small students often helps less than concise Short CoT. Effective distillation has to balance the *information density* of a rationale against its *learnability* for the student. MI-Distillation does this in two steps:
+</div>
+
+<p align="center">
+  <img src="assets/MI-Distillation.png" width="94%" alt="Overview of the MI-Distillation framework"/>
+</p>
+
+<p align="center">
+  <sub>
+    <b>MI-Distillation.</b> Interpolating an instruction-oriented and a reasoning-oriented teacher yields a
+    continuous spectrum of CoT trajectories; SeqLSS then picks, per problem, the one that is both
+    informative and learnable for the target student.
+  </sub>
+</p>
+
+---
+
+## Overview
+
+Distilling Long chain-of-thought (CoT) traces from large reasoning models into small students often helps *less* than concise Short CoT. Effective distillation has to balance the **information density** of a rationale against its **learnability** for the student. MI-Distillation does this in two steps:
 
 1. **Model interpolation** builds a continuous Instruct-Reasoning teacher spectrum by linearly interpolating a reasoning-oriented and an instruction-oriented teacher, producing CoT trajectories that vary smoothly in length, depth and correctness.
 2. **SeqLSS** (Sequential Learnable Surprisal Score) selects, per problem, the trajectory that is simultaneously informative and inside the student's high-probability region.
 
-![Overview of the MI-Distillation framework](assets/MI-Distillation.png)
-
-The three stages above map directly onto the pipeline scripts:
+The three stages in the figure map directly onto the pipeline scripts:
 
 | Stage in the figure | Scripts |
-| --- | --- |
-| 1. Model interpolation and diverse CoT generation | `01_interpolate_teachers.sh`, `02_generate_cot.sh` |
-| 2. Accuracy and SeqLSS selection | `04_seqlss_select.sh` |
-| 3. Format and distillation | `05_train_sft.sh` |
+| :--- | :--- |
+| ① Model interpolation and diverse CoT generation | [`01_interpolate_teachers.sh`](scripts/01_interpolate_teachers.sh), [`02_generate_cot.sh`](scripts/02_generate_cot.sh) |
+| ② Accuracy and SeqLSS selection | [`04_seqlss_select.sh`](scripts/04_seqlss_select.sh) |
+| ③ Format and distillation | [`05_train_sft.sh`](scripts/05_train_sft.sh) |
 
-This repository contains the method and its evaluation harness. The baseline implementations and the plotting code used to produce the paper's figures and tables are not included.
+> [!NOTE]
+> This repository contains the method and its evaluation harness. The baseline implementations and the plotting code used to produce the paper's figures and tables are not included.
+
+## Contents
+
+- [Method](#method)
+- [Main results](#main-results)
+- [Repository layout](#repository-layout)
+- [Setup](#setup)
+- [Pipeline](#pipeline)
+- [Adapting to your own models](#adapting-to-your-own-models)
+- [Notes on faithfulness to the paper](#notes-on-faithfulness-to-the-paper)
+- [Citation](#citation)
 
 ---
 
 ## Method
 
-**Teacher interpolation** (Eq. 3). With `Θ_Thi` the reasoning teacher and `Θ_Ins` the instruct teacher:
+### Teacher interpolation
 
-```
-Θ_MI(λ) = λ · Θ_Ins + (1 − λ) · Θ_Thi ,    λ ∈ [0, 1]
-```
+Given a reasoning-oriented teacher $\Theta^{\mathrm{Thi}}$ and an instruction-oriented teacher $\Theta^{\mathrm{Ins}}$, the interpolated teacher is
 
-`λ = 1.0` is the pure Instruct teacher (Short CoT), `λ = 0.0` the pure Reasoning teacher (Long CoT). This is equivalent to task arithmetic over the reasoning and instruction task vectors (Eq. 4).
+$$\Theta^{\mathrm{MI}}_{\lambda} = \lambda \Theta^{\mathrm{Ins}} + (1 - \lambda) \Theta^{\mathrm{Thi}}, \qquad \lambda \in [0, 1]$$
 
-**SeqLSS** (Eq. 7–10). For a candidate rationale `R = (r_1, ..., r_T)` scored under the student `θ_s`:
+so $\lambda = 1$ recovers the pure Instruct teacher (Short CoT) and $\lambda = 0$ the pure Reasoning teacher (Long CoT). This is equivalent to task arithmetic over the reasoning and instruction task vectors.
 
-```
-S_i    = −log p_θs(r_i | x, r_<i)                                  surprisal (informativeness)
-U_i    = Σ_{v : p_θs(v) > p_θs(r_i)} p_θs(v | x, r_<i)             mass on higher-ranked tokens
-LSS_i  = S_i · (1 − U_i)^α                                          learnability-penalised surprisal
-SeqLSS = Σ_i LSS_i / Σ_i S_i
-```
+### SeqLSS
 
-`SeqLSS ∈ [0, 1]` estimates the fraction of the informative reasoning signal in `R` that falls inside the student's learnable region. The exponent `α ≥ 0` controls the penalty strength; `α = 4` is the default (Appendix D.5). Normalising by `Σ_i S_i` rather than averaging `LSS_i` prevents a few extreme-surprisal tokens from dominating the sequence score.
+For a candidate rationale $R = (r_1, \dots, r_T)$ scored under the student $\theta_s$, the token-level **surprisal** and the probability mass on **higher-ranked tokens** are
+
+$$S_i = -\log p_{\theta_s}(r_i \mid x, r_{<i}), \qquad U_i = \sum_{v \, : \, p_{\theta_s}(v) > p_{\theta_s}(r_i)} p_{\theta_s}(v \mid x, r_{<i})$$
+
+and the sequence-level score aggregates them with a learnability penalty $\alpha \geq 0$:
+
+$$\mathrm{SeqLSS}(R) = \frac{\sum_{i=1}^{T} S_i (1 - U_i)^{\alpha}}{\sum_{i=1}^{T} S_i}$$
+
+$S_i$ rewards informative tokens while $(1 - U_i)^{\alpha}$ down-weights those far outside the student's high-probability region, so $\mathrm{SeqLSS} \in [0, 1]$ estimates the fraction of the informative reasoning signal in $R$ that the student can actually learn. Normalising by $\sum_i S_i$ rather than averaging prevents a few extreme-surprisal tokens from dominating the score. The default is $\alpha = 4$ (Appendix D.5).
 
 ### Notation
 
 The paper and the code use the same symbols:
 
 | Paper | Code | Meaning |
-| --- | --- | --- |
-| `λ` | `--lam` (`src/interpolate_models.py`), `LAMBDAS` | Interpolation coefficient; weight on the **Instruct** endpoint |
-| `α` | `--alpha` (`src/seqlss_selection.py`), `ALPHA` | Learnability penalty exponent in Eq. (9) |
+| :---: | :--- | :--- |
+| $\lambda$ | `--lam` ([`src/interpolate_models.py`](src/interpolate_models.py)), `LAMBDAS` | Interpolation coefficient; weight on the **Instruct** endpoint |
+| $\alpha$ | `--alpha` ([`src/seqlss_selection.py`](src/seqlss_selection.py)), `ALPHA` | Learnability penalty exponent |
 
-Earlier internal versions used `alpha` for the interpolation coefficient and `gamma` for the learnability penalty. `--alpha` accepts `--lss_gamma` and `--lam` accepts `--alpha` as deprecated aliases so old command lines keep working, but new code should use the paper's names.
+<details>
+<summary>Deprecated aliases</summary>
+
+Earlier internal versions used `alpha` for the interpolation coefficient and `gamma` for the learnability penalty. `--alpha` still accepts `--lss_gamma`, and `--lam` still accepts `--alpha`, so old command lines keep working. New code should use the paper's names.
+
+</details>
+
+---
+
+## Main results
+
+Average pass@1 over AIME24, AMC23, GPQA-Diamond, GSM8K, MATH-500, Minerva and OlympiadBench. Per-benchmark numbers with standard deviations are in Table 2 of the paper.
+
+| Distillation method | Qwen2.5-3B-Instruct | Llama-3.2-3B-Instruct |
+| :--- | :---: | :---: |
+| Short CoT (Qwen2.5-32B-Instruct) | 37.77 | 30.70 |
+| Long CoT (QwQ-32B) | 32.31 | 27.74 |
+| Mix Long | 34.60 | 28.61 |
+| Mix Large | <ins>39.09</ins> | <ins>31.53</ins> |
+| Curriculum Distillation | 34.13 | 26.51 |
+| **MI-Distillation (ours)** | **40.21** | **32.93** |
+
+Long CoT underperforms Short CoT on both 3B students, which is the phenomenon the method addresses.
 
 ---
 
 ## Repository layout
 
-```
+```text
 configs/
   deepspeed/                  ZeRO-3 configs (offload = paper setting)
   sft/                        LLaMA-Factory SFT configs for the two students
 src/
-  interpolate_models.py       Eq. (3): build an interpolated teacher
-  generate_cot.py             Sample the candidate pool D with vLLM
+  interpolate_models.py       Build an interpolated teacher
+  generate_cot.py             Sample the candidate pool with vLLM
   filter_dataset.py           Per-λ correctness + length filtering
-  seqlss_selection.py         Eq. (7)-(10): SeqLSS scoring and selection
+  seqlss_selection.py         SeqLSS scoring and selection
   export_llamafactory.py      Convert to LLaMA-Factory format and register
 evaluation/
   evaluate.py                 vLLM evaluation across 8 benchmarks
@@ -86,7 +139,8 @@ scripts/
 ## Setup
 
 ```bash
-git clone <this-repo> && cd CoT-Distillation
+git clone https://github.com/yslanprime/MI-Distillation.git
+cd MI-Distillation
 python -m venv .venv && source .venv/bin/activate
 
 # Install PyTorch for your CUDA build first: https://pytorch.org/get-started/locally/
@@ -107,18 +161,18 @@ python scripts/download_assets.py --group teachers-32b --group students --group 
 
 ### Training problems
 
-The distillation corpus is drawn from the **MATH training split with the MATH-500 test problems removed**, so that evaluation stays clean. This is not a single Hub dataset, so it is not covered by `download_assets.py`; prepare it yourself as a parquet file (or a directory of parquet files) with these columns:
+The distillation corpus is drawn from the **MATH training split with the MATH-500 test problems removed**, so evaluation stays clean. This is not a single Hub dataset and is therefore not covered by `download_assets.py`; prepare it as a parquet file (or a directory of parquet files) with these columns:
 
 | Column | Type | Notes |
-| --- | --- | --- |
-| `unique_id` | int | Stable key; used for resuming, deduplication and pairing across λ |
+| :--- | :---: | :--- |
+| `unique_id` | int | Stable key, used for resuming, deduplication and pairing across λ |
 | `problem` | str | Problem statement |
 | `answer` | str | Ground-truth final answer, used by the correctness filter |
 | `level` | str | Optional, retained as metadata |
 | `type` | str | Optional, retained as metadata |
 | `solution` | str | Optional, retained as metadata |
 
-Point `TRAIN_PROBLEMS` at it (default `data/raw/math_train`). The pipeline samples 7,500 problems from it, matching the paper.
+Point `TRAIN_PROBLEMS` at it (default `data/raw/math_train`). The pipeline samples 7,500 problems, matching the paper.
 
 ### Hardware
 
@@ -131,9 +185,9 @@ Results in the paper come from nodes with 8× NVIDIA L20 and 8× RTX A5000. Two 
 
 ## Pipeline
 
-Every stage is a thin wrapper over the Python entry points and is configured by environment variables whose defaults live in `scripts/common.sh`. Run them from the repository root.
+Every stage is a thin wrapper over the Python entry points, configured by environment variables whose defaults live in [`scripts/common.sh`](scripts/common.sh). Run them from the repository root.
 
-### 1. Teacher spectrum and candidate pool
+### ① Teacher spectrum and candidate pool
 
 ```bash
 # λ ∈ {0.0, 0.2, 0.4, 0.6, 0.8, 1.0}; endpoints are symlinked, not copied
@@ -143,7 +197,7 @@ bash scripts/01_interpolate_teachers.sh
 CUDA_VISIBLE_DEVICES=0,1,2,3 bash scripts/02_generate_cot.sh
 ```
 
-### 2. Training sets
+### ② Training sets
 
 ```bash
 # Optional: one dataset per fixed λ, including the Short CoT (λ=1.0) and
@@ -160,9 +214,9 @@ STUDENT_MODEL=pretrained_model/Qwen2.5-3B-Instruct ALPHAS="1 2 3 4" \
   bash scripts/04_seqlss_select.sh
 ```
 
-Each run prints the dataset name it registered in `data/train_data/dataset_info.json`, and writes a `*_summary.json` recording how many trajectories were selected from each λ.
+Each run prints the dataset name it registered in `data/train_data/dataset_info.json` and writes a `*_summary.json` recording how many trajectories were selected from each λ.
 
-### 3. Distillation and evaluation
+### ③ Distillation and evaluation
 
 ```bash
 STUDENT=qwen3b DATASET=<registered-name> RUN_NAME=qwen3b_seqlss_alpha4 \
@@ -173,18 +227,16 @@ MODELS="outputs/sft/qwen3b_seqlss_alpha4" bash scripts/06_evaluate.sh
 
 `STUDENT` is `qwen3b` or `llama3b`. Training pins the paper's hyperparameters: AdamW, lr 1e-5, 3 epochs, cutoff 8192, effective global batch 32 (1 × 8 grad-accum × 4 GPUs), bf16, DeepSpeed ZeRO-3 offload.
 
-Evaluation follows the paper's protocol: temperature 0.6, top-p 0.95, 8192 new tokens, pass@1 with **16 repeats** on AIME24/AMC23 and **4 repeats** on GSM8K, MATH-500, GPQA-Diamond, Minerva and OlympiadBench.
-
-Each repeat is written to its own file, `outputs/eval/{benchmark}_{model}_run{N}.json`, containing the overall accuracy, any per-group breakdown (MATH-500 difficulty level, OlympiadBench subfield) and every individual prediction.
+Evaluation follows the paper's protocol: temperature 0.6, top-p 0.95, 8192 new tokens, pass@1 with **16 repeats** on AIME24/AMC23 and **4 repeats** on GSM8K, MATH-500, GPQA-Diamond, Minerva and OlympiadBench. Each repeat is written to `outputs/eval/{benchmark}_{model}_run{N}.json`, containing the overall accuracy, any per-group breakdown (MATH-500 difficulty level, OlympiadBench subfield) and every individual prediction.
 
 ---
 
-## Using the method on your own models
+## Adapting to your own models
 
 The pipeline is not tied to the Qwen/QwQ pair:
 
 - **Different teachers.** Set `REASONING_MODEL`, `INSTRUCT_MODEL` and `TEACHER_TAG`. The two endpoints must share an architecture and parameter shapes; interpolating across families will fail the shape check in `src/interpolate_models.py`. Staying inside one family also controls for pretraining differences, which is what makes the spectrum interpretable.
-- **Different students.** Add `configs/sft/sft_<name>.yaml` with the matching LLaMA-Factory chat template and extend the `case` block in `scripts/05_train_sft.sh`. Then pass `STUDENT_MODEL=<path>` to stage 4 so SeqLSS scores under the right student.
+- **Different students.** Add `configs/sft/sft_<name>.yaml` with the matching LLaMA-Factory chat template and extend the `case` block in `scripts/05_train_sft.sh`. Then pass `STUDENT_MODEL=<path>` to stage ② so SeqLSS scores under the right student.
 - **Different λ grid.** Set `LAMBDAS`. More points cost proportionally more generation compute but give SeqLSS a finer spectrum to choose from.
 - **Different prompt.** Set `EVAL_INSTRUCTION`. It must stay identical across generation, training and evaluation, which is why all three read it from the same place.
 
@@ -192,15 +244,16 @@ The pipeline is not tied to the Qwen/QwQ pair:
 
 ## Notes on faithfulness to the paper
 
+- **λ grid.** Section 5.1 lists $\Lambda = \{0.2, 0.4, 0.6, 0.8, 1.0\}$. The experiments additionally include $\lambda = 0$, the pure-reasoning endpoint, which appears as candidate `CoT #0` in Figure 3 and is reported in Tables 7–8. The scripts therefore default to six values; set `LAMBDAS` to override.
 - **Generation vs. filtering length.** Trajectories are generated with a 16k-token budget and *then* filtered to prompt + response < 8192 tokens. Generating with headroom avoids counting truncated rationales as incorrect; the training data still respects the 8192 limit reported in the paper.
 - **Teacher scales.** The main results use the 32B spectrum (QwQ-32B ↔ Qwen2.5-32B-Instruct). The 14B spectrum (DeepSeek-R1-Distill-Qwen-14B ↔ Qwen2.5-14B-Instruct) is available via `--group teachers-14b` and the `TEACHER_TAG` override.
-- **Prompt.** Generation, training and evaluation all use `"{question}\nPlease reason step by step, and put your final answer within \boxed{}."` under the model's own chat template (Table 5).
+- **Prompt.** Generation, training and evaluation all use `{question}\nPlease reason step by step, and put your final answer within \boxed{}.` under the model's own chat template (Table 5).
 
 ---
 
 ## Citation
 
-The paper is accepted to Findings of EMNLP 2026 but not yet in the ACL Anthology, so please cite the arXiv preprint for now:
+The paper is accepted to Findings of EMNLP 2026 but is not yet in the ACL Anthology, so please cite the arXiv preprint for now:
 
 ```bibtex
 @misc{lan2026midistillation,
