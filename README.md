@@ -1,4 +1,4 @@
-# MI-Distillation
+# MI-Distillation: Selecting from Model-Interpolated Instruct-Reasoning Data Spectrum for Chain-of-Thought Distillation
 
 [![arXiv](https://img.shields.io/badge/arXiv-2608.29623-b31b1b.svg)](https://arxiv.org/abs/2608.29623)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
