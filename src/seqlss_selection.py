@@ -102,14 +102,11 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--alpha",
-        "--lss_gamma",
-        dest="alpha",
         type=float,
         default=DEFAULT_ALPHA,
         help=(
-            "Learnability penalty alpha in Eq. (9), the exponent on (1 - U_i). "
-            "Larger values favour trajectories that stay inside the student's "
-            "high-probability region. (--lss_gamma is a deprecated alias.)"
+            "Learnability penalty alpha, the exponent on (1 - U_i). Larger values "
+            "favour trajectories that stay inside the student's high-probability region."
         ),
     )
     parser.add_argument(

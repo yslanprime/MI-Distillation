@@ -47,14 +47,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--lam",
         "--lambda",
-        "--alpha",
         dest="lam",
         type=float,
         default=0.4,
         help=(
             "Interpolation coefficient lambda in [0, 1], the weight on the Instruct "
-            "endpoint. The Reasoning endpoint receives 1 - lambda. "
-            "(--alpha is a deprecated alias.)"
+            "endpoint. The Reasoning endpoint receives 1 - lambda."
         ),
     )
     parser.add_argument(
