@@ -44,7 +44,6 @@ The three stages in the figure map directly onto the pipeline scripts:
 ## Contents
 
 - [Method](#method)
-- [Main results](#main-results)
 - [Repository layout](#repository-layout)
 - [Setup](#setup)
 - [Pipeline](#pipeline)
@@ -56,22 +55,17 @@ The three stages in the figure map directly onto the pipeline scripts:
 
 ## Method
 
-**Teacher interpolation.** Given a reasoning-oriented teacher Θ<sup>Thi</sup> and an instruction-oriented teacher Θ<sup>Ins</sup>, the interpolated teacher is a convex combination of the two:
+**Teacher interpolation.** Interpolating an instruction-oriented teacher Θ<sup>Ins</sup> with a reasoning-oriented teacher Θ<sup>Thi</sup> gives a family of teachers indexed by λ:
 
 $$\Theta^{\mathrm{MI}}_{\lambda} = \lambda \Theta^{\mathrm{Ins}} + (1 - \lambda) \Theta^{\mathrm{Thi}}$$
 
-So λ = 1 recovers the pure Instruct teacher (Short CoT) and λ = 0 the pure Reasoning teacher (Long CoT). Sweeping λ over a grid yields a family of teachers whose CoT trajectories vary smoothly in length, depth and correctness. This is equivalent to task arithmetic over the reasoning and instruction task vectors.
+λ = 1 is the pure Instruct teacher (Short CoT) and λ = 0 the pure Reasoning teacher (Long CoT); intermediate values produce trajectories that vary smoothly in length and reasoning depth.
 
-**SeqLSS.** Every candidate rationale is scored under the *student*, combining two per-token quantities:
-
-- **Surprisal** — the negative log-likelihood the student assigns to the target token. High surprisal means the token carries information the student does not already have.
-- **Rank mass** — the probability the student places on all tokens it considers *more* likely than the target. High rank mass means the token sits far outside the student's high-probability region and is hard to imitate.
-
-The sequence score weights each token's surprisal by a learnability penalty raised to the power α, then normalises by the total surprisal:
+**SeqLSS.** Each candidate rationale is scored under the *student*. Per token, the surprisal S<sub>i</sub> measures how much information the token carries, and the rank mass U<sub>i</sub> measures how far it falls outside the student's high-probability region:
 
 $$\mathrm{SeqLSS}(R) = \frac{\sum_{i} S_i (1 - U_i)^{\alpha}}{\sum_{i} S_i}$$
 
-The result lies in [0, 1] and estimates the fraction of the informative reasoning signal in a rationale that the student can actually absorb. Normalising by the total surprisal, rather than averaging the per-token scores, keeps a handful of extreme tokens from dominating a long trajectory. Larger α penalises unlearnable tokens more aggressively; the default is α = 4.
+The score lies in [0, 1] and estimates how much of a rationale's reasoning signal the student can actually absorb. A larger learnability penalty α discounts hard-to-imitate tokens more strongly; the default is α = 4.
 
 ### Notation
 
@@ -81,30 +75,6 @@ The paper and the code use the same symbols:
 | :---: | :--- | :--- |
 | λ | `--lam` ([`src/interpolate_models.py`](src/interpolate_models.py)), `LAMBDAS` | Interpolation coefficient; weight on the **Instruct** endpoint |
 | α | `--alpha` ([`src/seqlss_selection.py`](src/seqlss_selection.py)), `ALPHA` | Learnability penalty exponent |
-
-<details>
-<summary>Deprecated aliases</summary>
-
-Earlier internal versions used `alpha` for the interpolation coefficient and `gamma` for the learnability penalty. `--alpha` still accepts `--lss_gamma`, and `--lam` still accepts `--alpha`, so old command lines keep working. New code should use the paper's names.
-
-</details>
-
----
-
-## Main results
-
-Average pass@1 over AIME24, AMC23, GPQA-Diamond, GSM8K, MATH-500, Minerva and OlympiadBench. Per-benchmark numbers with standard deviations are in Table 2 of the paper.
-
-| Distillation method | Qwen2.5-3B-Instruct | Llama-3.2-3B-Instruct |
-| :--- | :---: | :---: |
-| Short CoT (Qwen2.5-32B-Instruct) | 37.77 | 30.70 |
-| Long CoT (QwQ-32B) | 32.31 | 27.74 |
-| Mix Long | 34.60 | 28.61 |
-| Mix Large | <ins>39.09</ins> | <ins>31.53</ins> |
-| Curriculum Distillation | 34.13 | 26.51 |
-| **MI-Distillation (ours)** | **40.21** | **32.93** |
-
-Long CoT underperforms Short CoT on both 3B students, which is the phenomenon the method addresses.
 
 ---
 
@@ -241,9 +211,8 @@ The pipeline is not tied to the Qwen/QwQ pair:
 
 ## Notes on faithfulness to the paper
 
-- **λ grid.** Section 5.1 lists Λ = {0.2, 0.4, 0.6, 0.8, 1.0}. The experiments additionally include λ = 0, the pure-reasoning endpoint, which appears as candidate `CoT #0` in the figure above and is reported in Tables 7–8. The scripts therefore default to six values; set `LAMBDAS` to override.
 - **Generation vs. filtering length.** Trajectories are generated with a 16k-token budget and *then* filtered to prompt + response < 8192 tokens. Generating with headroom avoids counting truncated rationales as incorrect; the training data still respects the 8192 limit reported in the paper.
-- **Teacher scales.** The main results use the 32B spectrum (QwQ-32B ↔ Qwen2.5-32B-Instruct). The 14B spectrum (DeepSeek-R1-Distill-Qwen-14B ↔ Qwen2.5-14B-Instruct) is available via `--group teachers-14b` and the `TEACHER_TAG` override.
+- **Teacher scales.** The paper's main results use the 32B spectrum (QwQ-32B ↔ Qwen2.5-32B-Instruct), which is what the scripts default to. The 14B spectrum (DeepSeek-R1-Distill-Qwen-14B ↔ Qwen2.5-14B-Instruct) is available via `--group teachers-14b` and the `TEACHER_TAG` override.
 - **Prompt.** Generation, training and evaluation all use `{question}\nPlease reason step by step, and put your final answer within \boxed{}.` under the model's own chat template (Table 5).
 
 ---
