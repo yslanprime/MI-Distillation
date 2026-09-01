@@ -56,25 +56,22 @@ The three stages in the figure map directly onto the pipeline scripts:
 
 ## Method
 
-### Teacher interpolation
+**Teacher interpolation.** Given a reasoning-oriented teacher Θ<sup>Thi</sup> and an instruction-oriented teacher Θ<sup>Ins</sup>, the interpolated teacher is a convex combination of the two:
 
-Given a reasoning-oriented teacher $\Theta^{\mathrm{Thi}}$ and an instruction-oriented teacher $\Theta^{\mathrm{Ins}}$, the interpolated teacher is
+$$\Theta^{\mathrm{MI}}_{\lambda} = \lambda \Theta^{\mathrm{Ins}} + (1 - \lambda) \Theta^{\mathrm{Thi}}$$
 
-$$\Theta^{\mathrm{MI}}_{\lambda} = \lambda \Theta^{\mathrm{Ins}} + (1 - \lambda) \Theta^{\mathrm{Thi}}, \qquad \lambda \in [0, 1]$$
+So λ = 1 recovers the pure Instruct teacher (Short CoT) and λ = 0 the pure Reasoning teacher (Long CoT). Sweeping λ over a grid yields a family of teachers whose CoT trajectories vary smoothly in length, depth and correctness. This is equivalent to task arithmetic over the reasoning and instruction task vectors.
 
-so $\lambda = 1$ recovers the pure Instruct teacher (Short CoT) and $\lambda = 0$ the pure Reasoning teacher (Long CoT). This is equivalent to task arithmetic over the reasoning and instruction task vectors.
+**SeqLSS.** Every candidate rationale is scored under the *student*, combining two per-token quantities:
 
-### SeqLSS
+- **Surprisal** — the negative log-likelihood the student assigns to the target token. High surprisal means the token carries information the student does not already have.
+- **Rank mass** — the probability the student places on all tokens it considers *more* likely than the target. High rank mass means the token sits far outside the student's high-probability region and is hard to imitate.
 
-For a candidate rationale $R = (r_1, \dots, r_T)$ scored under the student $\theta_s$, the token-level **surprisal** and the probability mass on **higher-ranked tokens** are
+The sequence score weights each token's surprisal by a learnability penalty raised to the power α, then normalises by the total surprisal:
 
-$$S_i = -\log p_{\theta_s}(r_i \mid x, r_{<i}), \qquad U_i = \sum_{v \, : \, p_{\theta_s}(v) > p_{\theta_s}(r_i)} p_{\theta_s}(v \mid x, r_{<i})$$
+$$\mathrm{SeqLSS}(R) = \frac{\sum_{i} S_i (1 - U_i)^{\alpha}}{\sum_{i} S_i}$$
 
-and the sequence-level score aggregates them with a learnability penalty $\alpha \geq 0$:
-
-$$\mathrm{SeqLSS}(R) = \frac{\sum_{i=1}^{T} S_i (1 - U_i)^{\alpha}}{\sum_{i=1}^{T} S_i}$$
-
-$S_i$ rewards informative tokens while $(1 - U_i)^{\alpha}$ down-weights those far outside the student's high-probability region, so $\mathrm{SeqLSS} \in [0, 1]$ estimates the fraction of the informative reasoning signal in $R$ that the student can actually learn. Normalising by $\sum_i S_i$ rather than averaging prevents a few extreme-surprisal tokens from dominating the score. The default is $\alpha = 4$ (Appendix D.5).
+The result lies in [0, 1] and estimates the fraction of the informative reasoning signal in a rationale that the student can actually absorb. Normalising by the total surprisal, rather than averaging the per-token scores, keeps a handful of extreme tokens from dominating a long trajectory. Larger α penalises unlearnable tokens more aggressively; the default is α = 4.
 
 ### Notation
 
@@ -82,8 +79,8 @@ The paper and the code use the same symbols:
 
 | Paper | Code | Meaning |
 | :---: | :--- | :--- |
-| $\lambda$ | `--lam` ([`src/interpolate_models.py`](src/interpolate_models.py)), `LAMBDAS` | Interpolation coefficient; weight on the **Instruct** endpoint |
-| $\alpha$ | `--alpha` ([`src/seqlss_selection.py`](src/seqlss_selection.py)), `ALPHA` | Learnability penalty exponent |
+| λ | `--lam` ([`src/interpolate_models.py`](src/interpolate_models.py)), `LAMBDAS` | Interpolation coefficient; weight on the **Instruct** endpoint |
+| α | `--alpha` ([`src/seqlss_selection.py`](src/seqlss_selection.py)), `ALPHA` | Learnability penalty exponent |
 
 <details>
 <summary>Deprecated aliases</summary>
@@ -244,7 +241,7 @@ The pipeline is not tied to the Qwen/QwQ pair:
 
 ## Notes on faithfulness to the paper
 
-- **λ grid.** Section 5.1 lists $\Lambda = \{0.2, 0.4, 0.6, 0.8, 1.0\}$. The experiments additionally include $\lambda = 0$, the pure-reasoning endpoint, which appears as candidate `CoT #0` in Figure 3 and is reported in Tables 7–8. The scripts therefore default to six values; set `LAMBDAS` to override.
+- **λ grid.** Section 5.1 lists Λ = {0.2, 0.4, 0.6, 0.8, 1.0}. The experiments additionally include λ = 0, the pure-reasoning endpoint, which appears as candidate `CoT #0` in the figure above and is reported in Tables 7–8. The scripts therefore default to six values; set `LAMBDAS` to override.
 - **Generation vs. filtering length.** Trajectories are generated with a 16k-token budget and *then* filtered to prompt + response < 8192 tokens. Generating with headroom avoids counting truncated rationales as incorrect; the training data still respects the 8192 limit reported in the paper.
 - **Teacher scales.** The main results use the 32B spectrum (QwQ-32B ↔ Qwen2.5-32B-Instruct). The 14B spectrum (DeepSeek-R1-Distill-Qwen-14B ↔ Qwen2.5-14B-Instruct) is available via `--group teachers-14b` and the `TEACHER_TAG` override.
 - **Prompt.** Generation, training and evaluation all use `{question}\nPlease reason step by step, and put your final answer within \boxed{}.` under the model's own chat template (Table 5).
