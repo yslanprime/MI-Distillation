@@ -215,9 +215,6 @@ The pipeline is not tied to the Qwen/QwQ pair:
 ---
 
 ## Citation
-
-The paper is accepted to Findings of EMNLP 2026 but is not yet in the ACL Anthology, so please cite the arXiv preprint for now:
-
 ```bibtex
 @misc{lan2026midistillation,
   title         = {MI-Distillation: Selecting from Model-Interpolated Instruct-Reasoning
