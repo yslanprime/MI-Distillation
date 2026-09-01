@@ -30,9 +30,6 @@ Distilling Long chain-of-thought (CoT) traces from large reasoning models into s
 - **Model interpolation** builds a continuous Instruct-Reasoning teacher spectrum by linearly interpolating a reasoning-oriented and an instruction-oriented teacher, producing CoT trajectories that vary smoothly in length, depth and correctness.
 - **SeqLSS** (Sequential Learnable Surprisal Score) selects, per problem, the trajectory that is simultaneously informative and inside the student's high-probability region.
 
-> [!NOTE]
-> This repository contains the method and its evaluation harness. The baseline implementations and the plotting code used to produce the paper's figures and tables are not included.
-
 ## Contents
 
 - [Method](#method)
